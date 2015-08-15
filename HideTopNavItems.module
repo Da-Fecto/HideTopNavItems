@@ -1,0 +1,126 @@
+<?php
+/**
+ * Hide top nav items (0.0.1)
+ * Module to hide top nav items for non superusers.
+ *
+ * @author Martijn Geerts (Calago) mgeerts@calago.nl
+ *
+ * ProcessWire 2.x
+ * Copyright (C) 2011 by Ryan Cramer
+ * Licensed under GNU/GPL v2, see LICENSE.TXT
+ *
+ * http://www.processwire.com
+ * http://www.ryancramer.com
+ *
+ */
+
+class HideTopNavItems extends WireData implements Module, ConfigurableModule {
+
+    public static function getModuleInfo() {
+        return array(
+            'title' => __("Hide top nav items"),
+            'version' => "0.0.1",
+            'summary' => __("Hide pages from the topnav for non superusers."),
+            'author' => "Martijn Geerts",
+            'icon' => 'eye-slash',
+            'autoload' => function () {
+                if (wire('user')->isSuperuser()) return false;
+                if (wire('user')->hasPermission('top-nav-items-view')) return false;
+                return true;
+            },
+            'singular' => true,
+            'permissions' => array(
+                'top-nav-items-view' => __('Show all the default topnav items. (Bypassing this module.'),
+                ),
+        );
+    }
+
+    /**
+     * I ssked Ryan to make the below method hookable:
+     * https://github.com/ryancramerdesign/ProcessWire/blob/master/wire/modules/AdminTheme/AdminThemeDefault/AdminThemeDefaultHelpers.php#L366
+     *
+     * !So, prepend the method name with three underscores (___renderTopNavItems)
+     */
+    public function init() {
+        $this->addHookBefore("AdminThemeDefaultHelpers::renderTopNavItems", $this, "hidePages");
+    }
+
+    public static $configDefaults = array(
+        "exclude_pages" => array(),
+    );
+
+    public function hidePages($event) {
+        $event->replace = true;
+        $helper = $event->object;
+
+        $out = '';
+        $outMobile = '';
+        $outTools = '';
+        $config = $this->wire('config');
+        $admin = $this->wire('pages')->get($config->adminRootPageID);
+        $user = $this->wire('user');
+        $ids = $this->exclude_pages;
+        $selector = 'check_access=0';
+
+        if (count($ids)) {
+            $selector .= ', id!=' . implode('|', $ids);
+        }
+
+        foreach($admin->children($selector) as $p) {
+            if(!$p->viewable()) continue;
+            $out .= $helper->renderTopNavItem($p);
+            $outMobile .= "<li><a href='$p->url'>$p->title</a></li>";
+        }
+
+        $outTools .=
+            "<li><a href='{$config->urls->root}'><i class='fa fa-fw fa-eye'></i> " .
+            $this->_('View Site') . "</a></li>";
+
+        if($user->isLoggedin()) {
+            if($user->hasPermission('profile-edit')) {
+                $outTools .=
+                    "<li><a href='{$config->urls->admin}profile/'><i class='fa fa-fw fa-user'></i> " .
+                    $this->_('Profile') . " <small>{$user->name}</small></a></li>";
+            }
+            $outTools .=
+                "<li><a href='{$config->urls->admin}login/logout/'>" .
+                "<i class='fa fa-fw fa-power-off'></i> " . $this->_('Logout') . "</a></li>";
+        }
+
+        $outMobile = "<ul id='topnav-mobile' class='dropdown-menu topnav' data-my='left top' data-at='left bottom'>$outMobile$outTools</ul>";
+
+        $out .=
+            "<li>" .
+            "<a target='_blank' id='tools-toggle' class='dropdown-toggle' href='{$config->urls->root}'>" .
+            "<i class='fa fa-wrench'></i></a>" .
+            "<ul class='dropdown-menu topnav' data-my='left top' data-at='left bottom'>" . $outTools .
+            "</ul></li>";
+
+        $out .=
+            "<li class='collapse-topnav-menu'><a href='$admin->url' class='dropdown-toggle'>" .
+            "<i class='fa fa-lg fa-bars'></i></a>$outMobile</li>";
+
+        $event->return = $out;
+    }
+
+
+    public static function getModuleConfigInputfields(array $data) {
+        $form = new InputfieldWrapper();
+
+        $name = 'exclude_pages';
+        $data = array_merge(self::$configDefaults, $data);
+        $items = wire('pages')->get(wire('config')->adminRootPageID)->children("check_access=0");
+        $f = wire('modules')->get('InputfieldAsmSelect');
+        $f->name = $name;
+        $f->label = __('Exclude Pages');
+        $f->description = __('Exclude pages from the top navigation (#topnav)');
+        foreach($items as $item) {
+            $f->addOption($item->id, $item->title);
+        }
+        $f->attr('value', $data[$name]);
+        $f->notes = __("This module will not execute for superusers & users having the permission 'top-nav-items-view'");
+        $form->append($f);
+
+        return $form;
+    }
+}
