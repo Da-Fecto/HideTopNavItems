@@ -1,6 +1,6 @@
 <?php
 /**
- * Hide top nav items (0.0.2)
+ * Hide top nav items (0.0.3)
  * Module to hide top nav items for non superusers.
  *
  * @author Martijn Geerts (Calago) mgeerts@calago.nl
@@ -19,7 +19,7 @@ class HideTopNavItems extends WireData implements Module, ConfigurableModule {
     public static function getModuleInfo() {
         return array(
             'title' => __("Hide top nav items"),
-            'version' => "0.0.2",
+            'version' => "0.0.3",
             'summary' => __("Hide pages from the topnav for non superusers."),
             'author' => "Martijn Geerts",
             'icon' => 'eye-slash',
@@ -42,13 +42,20 @@ class HideTopNavItems extends WireData implements Module, ConfigurableModule {
      * !So, prepend the method name with three underscores (___renderTopNavItems)
      */
     public function init() {
+
+        // Exclude selected pages
+        if (count($this->exclude_pages)) {
+            $this->addHookAfter('Page::viewable', function($event) {
+                if (in_array($event->object->id, $this->exclude_pages)) {
+                    $event->return = false;
+                }
+            });
+        }
+
         if ($this->adminTheme == 'AdminThemeDefault') {
             $this->addHookBefore("AdminThemeDefaultHelpers::renderTopNavItems", $this, "defaultHidePages");
-        } else if ($this->adminTheme == 'AdminThemeReno') {
-            $this->addHookBefore("AdminThemeRenoHelpers::renderSideNavItems", $this, "renoHidePages");
         }
     }
-
 
     public static $configDefaults = array(
         "exclude_pages" => array(),
@@ -63,12 +70,9 @@ class HideTopNavItems extends WireData implements Module, ConfigurableModule {
         $config = $this->wire('config');
         $admin = $this->wire('pages')->get($config->adminRootPageID);
         $user = $this->wire('user');
-        $ids = $this->exclude_pages;
-        $selector = 'check_access=0';
 
-        if (count($ids)) { $selector .= ', id!=' . implode('|', $ids); }
 
-        foreach($admin->children($selector) as $p) {
+        foreach($admin->children('check_access=0') as $p) {
             if(!$p->viewable()) continue;
             $out .= $helper->renderTopNavItem($p);
             $outMobile .= "<li><a href='$p->url'>$p->title</a></li>";
@@ -103,32 +107,6 @@ class HideTopNavItems extends WireData implements Module, ConfigurableModule {
 
         $event->return = $out;
     }
-
-    /**
-     * Render all sidenav navigation items, ready to populate in ul#main-nav
-     *
-     * @return string
-     *
-     */
-
-    public function renoHidePages($event) {
-
-        $event->replace = true;
-        $helper = $event->object;
-        $out = '';
-        $admin = $this->wire('pages')->get($this->wire('config')->adminRootPageID);
-        $ids = $this->exclude_pages;
-        $selector = 'check_access=0';
-        if (count($ids)) { $selector .= ', id!=' . implode('|', $ids); }
-
-        foreach($admin->children($selector) as $p) {
-            if(!$p->viewable()) continue;
-            $out .= $helper->renderSideNavItem($p);
-        }
-
-        $event->return = $out;
-    }
-
 
 
     public static function getModuleConfigInputfields(array $data) {
